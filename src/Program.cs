@@ -40,8 +40,7 @@ var regFieldEncodings = new Dictionary<int, string[]>()
 var modFieldEncodings = new int[] { 0b00, 0b01, 0b10, 0b11 };
 
 var stringBuilder = new StringBuilder();
-stringBuilder.AppendLine("bits 16");
-stringBuilder.AppendLine();
+stringBuilder.AppendLine("bits 16\n");
 
 for (int i = 0; i < bufferSize; i += 2)
 {
@@ -59,10 +58,9 @@ for (int i = 0; i < bufferSize; i += 2)
 	string src = d == 0 ? regFieldEncodings[reg][w] : regFieldEncodings[rm][w];
 	string dest = d == 0 ? regFieldEncodings[rm][w] : regFieldEncodings[reg][w];
 
-	stringBuilder.Append(dest + ", " + src);
-	stringBuilder.AppendLine();
+	stringBuilder.Append($"{dest}, {src}\n");
 }
 
-System.Console.WriteLine(stringBuilder.ToString());
+Console.WriteLine(stringBuilder.ToString());
 
 #endregion
