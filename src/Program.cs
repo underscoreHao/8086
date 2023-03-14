@@ -9,7 +9,7 @@ class Program
 	};
 	private static int[] modFieldEncodings = new int[] { 0b00, 0b01, 0b10, 0b11 };
 
-	private static readonly Dictionary<int, string[]> regFieldEncodings = new()
+	private static readonly Dictionary<int, string[]> regFieldMemoryModeEncodings = new()
 	{
 		{ 0b000, new[] {"al", "ax"} },
 		{ 0b001, new[] {"cl", "cx"} },
@@ -19,6 +19,18 @@ class Program
 		{ 0b101, new[] {"ch", "bp"} },
 		{ 0b110, new[] {"dh", "si"} },
 		{ 0b111, new[] {"bh", "di"} },
+	};
+
+	private static readonly Dictionary<(int, int), string[]> regFieldEffectiveAddressEncodings = new()
+	{
+		{ (0b000, 0b00), new[] {"bx + si"} },
+		{ (0b001, 0b00), new[] {"bx + di"} },
+		{ (0b010, 0b00), new[] {"bp + si"} },
+		{ (0b011, 0b00), new[] {"bp + di"} },
+		{ (0b100, 0b00), new[] {"si"} },
+		{ (0b101, 0b00), new[] {"di"} },
+		{ (0b110, 0b01), new[] {"bp"} }, // Direct 16-bit displacement
+		{ (0b111, 0b00), new[] {"bx"} },
 	};
 
 	static void Main(string[] args)
@@ -68,7 +80,7 @@ class Program
 						instr.Data = (short)((buffer[i + 2] << 8) | (buffer[i + 1] << 0));
 						i += 1; // skip next two bytes as they've been read
 					}
-					dest = regFieldEncodings[instr.Reg][instr.W_Flag];
+					dest = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
 					src = instr.Data.ToString();
 
 					break;
@@ -79,13 +91,31 @@ class Program
 					instr.Reg = buffer[i + 1] >> 3 & 7;
 					instr.Rm = buffer[i + 1] >> 0 & 7;
 
-					src = instr.D_Flag == 0
-						? regFieldEncodings[instr.Reg][instr.W_Flag]
-						: regFieldEncodings[instr.Rm][instr.W_Flag];
+					if (instr.Mod == 0b00)
+					{
+						src = $"[{regFieldEffectiveAddressEncodings[(instr.Rm, instr.Mod)].First()}]";
+						dest = instr.D_Flag == 0
+							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
+							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+					}
+					else
+					{
+						if (instr.Rm == 0b110 && buffer[i + 2] == 0)
+						{
+							src = $"[{regFieldEffectiveAddressEncodings[(instr.Rm, instr.Mod)].First()}]";
+						}
+						else
+						{
+							src = instr.D_Flag == 0
+								? regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag]
+								: regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag];
+						}
 
-					dest = instr.D_Flag == 0
-						? regFieldEncodings[instr.Rm][instr.W_Flag]
-						: regFieldEncodings[instr.Reg][instr.W_Flag];
+						dest = instr.D_Flag == 0
+							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
+							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+					}
+
 
 					break;
 			}
