@@ -44,15 +44,6 @@ class Program
 		byte[] buffer = new byte[256];
 		int bufferSize = stdin.Read(buffer, 0, buffer.Length);
 
-#if DEBUG
-
-		for (int j = 0; j < bufferSize - 1; j += 2)
-			Console.WriteLine(Convert.ToString(buffer[j], 2) + ", " + Convert.ToString(buffer[j + 1], 2));
-
-		Console.WriteLine();
-
-#endif
-
 		var stringBuilder = new StringBuilder();
 		stringBuilder.AppendLine("bits 16\n");
 
@@ -63,38 +54,46 @@ class Program
 		int i = 0;
 		while (i < bufferSize)
 		{
-			//Console.WriteLine(Convert.ToString(buffer[i], 2));
-
 			var opCode = GetOpCode(buffer[i]);
 			instr.OpCode = opCode;
 			var opRange = GetOpRange(opCode, ref buffer, i);
 			var curInstruction = buffer[opRange];
 
+#if DEBUG
+			foreach (var b in curInstruction)
+				Console.Write($"{Convert.ToString(b, 2)}, ");
+
+			Console.WriteLine();
+#endif
+
 			switch (opCode)
 			{
 				case 0b1011:
-					(dest, src) = ImmediateToRegister(curInstruction, ref instr);
+					(dest, src) = ImmediateToRegister(curInstruction);
 					break;
 				case 0b100010:
-					instr.D_Flag = buffer[i] >> 1 & 3;
-					instr.W_Flag = buffer[i] >> 0 & 1;
+					// TODO: Extract this into a function
+					// ======================================
+					instr.D = buffer[i] >> 1 & 3;
+					instr.W = buffer[i] >> 0 & 1;
 
 
 					instr.Mod = buffer[i + 1] >> 6 & 7;
 					instr.Reg = buffer[i + 1] >> 3 & 7;
 					instr.Rm = buffer[i + 1] >> 0 & 7;
+					// ======================================
 
 					if (instr.Mod == 0b00)
 					{
 						var address = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()}]";
-						var reg = instr.D_Flag == 0
-							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
-							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+						var reg = instr.D == 0
+							? regFieldMemoryModeEncodings[instr.Rm][instr.W]
+							: regFieldMemoryModeEncodings[instr.Reg][instr.W];
 
-						if (instr.D_Flag == 0)
+						if (instr.D == 0)
 						{
 							dest = address;
-							src = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+							src = regFieldMemoryModeEncodings[instr.Reg][instr.W];
 						}
 						else
 						{
@@ -115,8 +114,8 @@ class Program
 							reg = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()} + {buffer[i + 2]}]";
 						}
 
-						var address = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
-						if (instr.D_Flag == 1)
+						var address = regFieldMemoryModeEncodings[instr.Reg][instr.W];
+						if (instr.D == 1)
 						{
 							dest = address;
 							src = reg;
@@ -134,20 +133,20 @@ class Program
 						var data = (short)((buffer[i + 3] << 8) | (buffer[i + 2] << 0));
 						src = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()} + {data}]";
 
-						dest = instr.D_Flag == 0
-							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
-							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+						dest = instr.D == 0
+							? regFieldMemoryModeEncodings[instr.Rm][instr.W]
+							: regFieldMemoryModeEncodings[instr.Reg][instr.W];
 					}
 
 					if (instr.Mod == 0b11)
 					{
-						src = instr.D_Flag == 0
-									? regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag]
-									: regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag];
+						src = instr.D == 0
+									? regFieldMemoryModeEncodings[instr.Reg][instr.W]
+									: regFieldMemoryModeEncodings[instr.Rm][instr.W];
 
-						dest = instr.D_Flag == 0
-							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
-							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+						dest = instr.D == 0
+							? regFieldMemoryModeEncodings[instr.Rm][instr.W]
+							: regFieldMemoryModeEncodings[instr.Reg][instr.W];
 					}
 
 					break;
@@ -157,7 +156,7 @@ class Program
 
 			Console.WriteLine($"{dest}, {src}");
 
-			stringBuilder.Append(instructionEncodings[instr.OpCode] + " ");
+			stringBuilder.Append(instructionEncodings[opCode] + " ");
 			stringBuilder.Append($"{dest}, {src}\n");
 		}
 		Console.WriteLine(stringBuilder.ToString());
@@ -202,23 +201,20 @@ class Program
 		return opRange;
 	}
 
-	private static (string dest, string src) ImmediateToRegister(byte[] instrBytes, ref Instruction instr)
+	private static (string dest, string src) ImmediateToRegister(byte[] instrBytes)
 	{
-		instr.W_Flag = instrBytes[0] >> 3 & 1;
-		instr.Reg = instrBytes[0] >> 0 & 7;
-		if (instr.W_Flag == 0)
-		{
-			instr.Data = (sbyte)instrBytes[1];
-		}
-		else
-		{
-			// Little endian
-			instr.Data = (short)((instrBytes[2] << 8) | (instrBytes[1] << 0));
-		}
+		var W = instrBytes[0] >> 3 & 1;
+		var Reg = instrBytes[0] >> 0 & 7;
+		int Data;
+
+		if (W == 0)
+			Data = (sbyte)instrBytes[1];
+		else // Little endian
+			Data = (short)((instrBytes[2] << 8) | (instrBytes[1] << 0));
 
 		return (
-			dest: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag],
-			src: instr.Data.ToString());
+			dest: regFieldMemoryModeEncodings[Reg][W],
+			src: Data.ToString());
 	}
 
 	private static Instruction BuildInstruction(int opCode, byte[] buffer)
@@ -226,7 +222,7 @@ class Program
 		return new Instruction
 		{
 			OpCode = opCode,
-			W_Flag = buffer[0] >> 3 & 1
+			W = buffer[0] >> 3 & 1
 		};
 	}
 
@@ -250,8 +246,8 @@ class Program
 public struct Instruction
 {
 	public int OpCode { get; set; }
-	public int D_Flag { get; set; }
-	public int W_Flag { get; set; }
+	public int D { get; set; }
+	public int W { get; set; }
 	public int Mod { get; set; }
 	public int Reg { get; set; }
 	public int Rm { get; set; }
