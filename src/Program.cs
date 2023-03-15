@@ -21,16 +21,16 @@ class Program
 		{ 0b111, new[] {"bh", "di"} },
 	};
 
-	private static readonly Dictionary<(int, int), string[]> regFieldEffectiveAddressEncodings = new()
+	private static readonly Dictionary<int, string[]> regFieldEffectiveAddressEncodings = new()
 	{
-		{ (0b000, 0b00), new[] {"bx + si"} },
-		{ (0b001, 0b00), new[] {"bx + di"} },
-		{ (0b010, 0b00), new[] {"bp + si"} },
-		{ (0b011, 0b00), new[] {"bp + di"} },
-		{ (0b100, 0b00), new[] {"si"} },
-		{ (0b101, 0b00), new[] {"di"} },
-		{ (0b110, 0b01), new[] {"bp"} }, // Direct 16-bit displacement
-		{ (0b111, 0b00), new[] {"bx"} },
+		{ (0b000), new[] {"bx + si"} },
+		{ (0b001), new[] {"bx + di"} },
+		{ (0b010), new[] {"bp + si"} },
+		{ (0b011), new[] {"bp + di"} },
+		{ (0b100), new[] {"si"} },
+		{ (0b101), new[] {"di"} },
+		{ (0b110), new[] {"bp"} }, // Direct 16-bit displacement
+		{ (0b111), new[] {"bx"} },
 	};
 
 	static void Main(string[] args)
@@ -46,8 +46,8 @@ class Program
 
 #if DEBUG
 
-		for (int i = 0; i < bufferSize - 1; i += 2)
-			Console.WriteLine(Convert.ToString(buffer[i], 2) + ", " + Convert.ToString(buffer[i + 1], 2));
+		for (int j = 0; j < bufferSize - 1; j += 2)
+			Console.WriteLine(Convert.ToString(buffer[j], 2) + ", " + Convert.ToString(buffer[j + 1], 2));
 
 		Console.WriteLine();
 
@@ -56,13 +56,14 @@ class Program
 		var stringBuilder = new StringBuilder();
 		stringBuilder.AppendLine("bits 16\n");
 
-		for (int i = 0; i < bufferSize; i += 2)
-		{
-			Console.WriteLine(Convert.ToString(buffer[i], 2) + ", " + Convert.ToString(buffer[i + 1], 2));
+		var instr = new Instruction();
+		string src = string.Empty;
+		string dest = string.Empty;
 
-			var instr = new Instruction();
-			string src = string.Empty;
-			string dest = string.Empty;
+		int i = 0;
+		while (i < bufferSize)
+		{
+			//Console.WriteLine(Convert.ToString(buffer[i], 2));
 
 			instr.OpCode = GetOpCode(buffer[i]);
 
@@ -74,11 +75,12 @@ class Program
 					if (instr.W_Flag == 0)
 					{
 						instr.Data = (sbyte)buffer[i + 1];
+						i += 2;
 					}
 					else
 					{
 						instr.Data = (short)((buffer[i + 2] << 8) | (buffer[i + 1] << 0));
-						i += 1; // skip next two bytes as they've been read
+						i += 3; // skip next two bytes as they've been read
 					}
 					dest = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
 					src = instr.Data.ToString();
@@ -87,35 +89,86 @@ class Program
 				case 0b100010:
 					instr.D_Flag = buffer[i] >> 1 & 3;
 					instr.W_Flag = buffer[i] >> 0 & 1;
+
+
 					instr.Mod = buffer[i + 1] >> 6 & 7;
 					instr.Reg = buffer[i + 1] >> 3 & 7;
 					instr.Rm = buffer[i + 1] >> 0 & 7;
 
 					if (instr.Mod == 0b00)
 					{
-						src = $"[{regFieldEffectiveAddressEncodings[(instr.Rm, instr.Mod)].First()}]";
-						dest = instr.D_Flag == 0
+						var address = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()}]";
+						var reg = instr.D_Flag == 0
 							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
 							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
-					}
-					else
-					{
-						if (instr.Rm == 0b110 && buffer[i + 2] == 0)
+
+						if (instr.D_Flag == 0)
 						{
-							src = $"[{regFieldEffectiveAddressEncodings[(instr.Rm, instr.Mod)].First()}]";
+							dest = address;
+							src = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
 						}
 						else
 						{
-							src = instr.D_Flag == 0
-								? regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag]
-								: regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag];
+							src = address;
+							dest = reg;
 						}
+
+						i += 2;
+					}
+
+					if (instr.Mod == 0b01)
+					{
+						string reg = string.Empty;
+						if (instr.Rm == 0b110 && buffer[i + 2] == 0)
+						{
+							// read 16 bit displacement
+							i += 3;
+							reg = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()}]";
+						}
+						else
+						{
+							reg = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()} + {buffer[i + 2]}]";
+							i += 3;
+						}
+
+						var address = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+						if (instr.D_Flag == 1)
+						{
+							dest = address;
+							src = reg;
+						}
+						else
+						{
+							src = address;
+							dest = reg;
+						}
+					}
+
+					if (instr.Mod == 0b10)
+					{
+						// read 16 bit displacement
+						var data = (short)((buffer[i + 3] << 8) | (buffer[i + 2] << 0));
+						src = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()} + {data}]";
 
 						dest = instr.D_Flag == 0
 							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
 							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+
+						i += 4;
 					}
 
+					if (instr.Mod == 0b11)
+					{
+						src = instr.D_Flag == 0
+									? regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag]
+									: regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag];
+
+						dest = instr.D_Flag == 0
+							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
+							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
+
+						i += 2;
+					}
 
 					break;
 			}
@@ -125,7 +178,6 @@ class Program
 			stringBuilder.Append(instructionEncodings[instr.OpCode] + " ");
 			stringBuilder.Append($"{dest}, {src}\n");
 		}
-
 		Console.WriteLine(stringBuilder.ToString());
 	}
 
