@@ -65,26 +65,15 @@ class Program
 		{
 			//Console.WriteLine(Convert.ToString(buffer[i], 2));
 
-			instr.OpCode = GetOpCode(buffer[i]);
+			var opCode = GetOpCode(buffer[i]);
+			instr.OpCode = opCode;
+			var opRange = GetOpRange(opCode, ref buffer, i);
+			var curInstruction = buffer[opRange];
 
-			switch (instr.OpCode)
+			switch (opCode)
 			{
 				case 0b1011:
-					instr.W_Flag = buffer[i] >> 3 & 1;
-					instr.Reg = buffer[i] >> 0 & 7;
-					if (instr.W_Flag == 0)
-					{
-						instr.Data = (sbyte)buffer[i + 1];
-						i += 2;
-					}
-					else
-					{
-						instr.Data = (short)((buffer[i + 2] << 8) | (buffer[i + 1] << 0));
-						i += 3; // skip next two bytes as they've been read
-					}
-					dest = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
-					src = instr.Data.ToString();
-
+					(dest, src) = ImmediateToRegister(curInstruction, ref instr);
 					break;
 				case 0b100010:
 					instr.D_Flag = buffer[i] >> 1 & 3;
@@ -112,8 +101,6 @@ class Program
 							src = address;
 							dest = reg;
 						}
-
-						i += 2;
 					}
 
 					if (instr.Mod == 0b01)
@@ -121,14 +108,11 @@ class Program
 						string reg = string.Empty;
 						if (instr.Rm == 0b110 && buffer[i + 2] == 0)
 						{
-							// read 16 bit displacement
-							i += 3;
 							reg = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()}]";
 						}
 						else
 						{
 							reg = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()} + {buffer[i + 2]}]";
-							i += 3;
 						}
 
 						var address = regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
@@ -153,8 +137,6 @@ class Program
 						dest = instr.D_Flag == 0
 							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
 							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
-
-						i += 4;
 					}
 
 					if (instr.Mod == 0b11)
@@ -166,12 +148,12 @@ class Program
 						dest = instr.D_Flag == 0
 							? regFieldMemoryModeEncodings[instr.Rm][instr.W_Flag]
 							: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag];
-
-						i += 2;
 					}
 
 					break;
 			}
+
+			i = opRange.End.Value;
 
 			Console.WriteLine($"{dest}, {src}");
 
@@ -181,15 +163,82 @@ class Program
 		Console.WriteLine(stringBuilder.ToString());
 	}
 
-	static int GetOpCode(int byte1)
+	private static Range GetOpRange(int opCode, ref byte[] buffer, int startPos)
+	{
+		var opRange = new Range();
+		switch (opCode)
+		{
+			case 0b1011:
+				{
+					var w = buffer[startPos] >> 3 & 1;
+					opRange = w == 0
+						? new Range(startPos, startPos + 2)
+						: new Range(startPos, startPos + 3);
+				}
+				break;
+			case 0b100010:
+				{
+					var mod = buffer[startPos + 1] >> 6 & 7;
+					switch (mod)
+					{
+						case 0b00: // 2 (cur + 2)
+							opRange = new Range(startPos, startPos + 2);
+							break;
+						case 0b01: // 3 (cur + 3)
+							opRange = new Range(startPos, startPos + 3);
+							break;
+						case 0b10: // 4
+							opRange = new Range(startPos, startPos + 4);
+							break;
+						case 0b11: // 2
+							opRange = new Range(startPos, startPos + 2);
+							break;
+					}
+				}
+
+				break;
+		}
+
+		return opRange;
+	}
+
+	private static (string dest, string src) ImmediateToRegister(byte[] instrBytes, ref Instruction instr)
+	{
+		instr.W_Flag = instrBytes[0] >> 3 & 1;
+		instr.Reg = instrBytes[0] >> 0 & 7;
+		if (instr.W_Flag == 0)
+		{
+			instr.Data = (sbyte)instrBytes[1];
+		}
+		else
+		{
+			// Little endian
+			instr.Data = (short)((instrBytes[2] << 8) | (instrBytes[1] << 0));
+		}
+
+		return (
+			dest: regFieldMemoryModeEncodings[instr.Reg][instr.W_Flag],
+			src: instr.Data.ToString());
+	}
+
+	private static Instruction BuildInstruction(int opCode, byte[] buffer)
+	{
+		return new Instruction
+		{
+			OpCode = opCode,
+			W_Flag = buffer[0] >> 3 & 1
+		};
+	}
+
+	static int GetOpCode(int opByte)
 	{
 		// check if we're doing immediate-to-register first
-		var opCode = byte1 >> 4;
+		var opCode = opByte >> 4;
 		if (instructionEncodings.ContainsKey(opCode))
 			return opCode;
 
 		// check if we're doing register/memory to/from register
-		opCode = byte1 >> 2;
+		opCode = opByte >> 2;
 		if (instructionEncodings.ContainsKey(opCode))
 			return opCode;
 
@@ -207,4 +256,5 @@ public struct Instruction
 	public int Reg { get; set; }
 	public int Rm { get; set; }
 	public int Data { get; set; }
+	public int[] DataSet { get; set; }
 }
