@@ -54,10 +54,7 @@ class Program
 		int i = 0;
 		while (i < bufferSize)
 		{
-			var instr = new Instruction();
-
 			var opCode = GetOpCode(buffer[i]);
-			instr.OpCode = opCode;
 			var opRange = GetOpRange(opCode, ref buffer, i);
 			var curInstruction = buffer[opRange];
 
@@ -88,6 +85,9 @@ class Program
 		Console.WriteLine(stringBuilder.ToString());
 	}
 
+	// TODO: This way of doing things is redundant. We do a pass on the W or MOD just to get a range
+	// Then we do it again. Move main logic of RegMemToFromRegister here and go from there.
+	// This method is also redundant in the face of the main loop where we're doing switch on the OpCodes
 	private static Range GetOpRange(int opCode, ref byte[] buffer, int startPos)
 	{
 		var opRange = new Range();
@@ -127,6 +127,7 @@ class Program
 		return opRange;
 	}
 
+	// TODO: Why get a sub-array of the instruction bytes if you're no using the range?
 	private static (string dest, string src) RegMemToFromRegister(byte[] instrBytes)
 	{
 		string dest = string.Empty;
@@ -144,23 +145,12 @@ class Program
 		{
 			var decodedRm = $"[{rmFieldEffectiveAddressEncoding[Rm].First()}]";
 			var decodedReg = D == 0
-				? regFieldMemoryModeEncoding[Rm][W]
-				: regFieldMemoryModeEncoding[Reg][W];
+				? regFieldMemoryModeEncoding[Reg][W]
+				: regFieldMemoryModeEncoding[Rm][W];
 
 			(dest, src) = D == 0
-				? (decodedRm, regFieldMemoryModeEncoding[Reg][W])
+				? (decodedRm, decodedReg)
 				: (decodedReg, decodedRm);
-
-			// if (D == 0)
-			// {
-			// 	dest = decodedRm;
-			// 	src = regFieldMemoryModeEncoding[Reg][W];
-			// }
-			// else
-			// {
-			// 	src = decodedRm;
-			// 	dest = decodedReg;
-			// }
 		}
 
 		// Memory Mode - 8 bit displacement
@@ -198,19 +188,12 @@ class Program
 			(dest, src) = D == 0
 				? (regFieldMemoryModeEncoding[Rm][W], regFieldMemoryModeEncoding[Reg][W])
 				: (regFieldMemoryModeEncoding[Reg][W], regFieldMemoryModeEncoding[Rm][W]);
-
-			// src = D == 0
-			// 	? regFieldMemoryModeEncodings[Reg][W]
-			// 	: regFieldMemoryModeEncodings[Rm][W];
-
-			// dest = D == 0
-			// 	? regFieldMemoryModeEncodings[Rm][W]
-			// 	: regFieldMemoryModeEncodings[Reg][W];
 		}
 
 		return (dest, src);
 	}
 
+	// TODO: Same as the above method. Why get the range if it's not used. There's no bounds checking
 	private static (string dest, string src) ImmediateToRegister(byte[] instrBytes)
 	{
 		var W = instrBytes[0] >> 3 & 1;
@@ -242,16 +225,4 @@ class Program
 		// TODO: Will blow up if opCode is not found
 		return 0;
 	}
-}
-
-public struct Instruction
-{
-	public int OpCode { get; set; }
-	public int D { get; set; }
-	public int W { get; set; }
-	public int Mod { get; set; }
-	public int Reg { get; set; }
-	public int Rm { get; set; }
-	public int Data { get; set; }
-	public int[] DataSet { get; set; }
 }
