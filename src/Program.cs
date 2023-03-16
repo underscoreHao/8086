@@ -9,7 +9,7 @@ class Program
 	};
 	private static int[] modFieldEncodings = new int[] { 0b00, 0b01, 0b10, 0b11 };
 
-	private static readonly Dictionary<int, string[]> regFieldMemoryModeEncodings = new()
+	private static readonly Dictionary<int, string[]> regFieldMemoryModeEncoding = new()
 	{
 		{ 0b000, new[] {"al", "ax"} },
 		{ 0b001, new[] {"cl", "cx"} },
@@ -21,7 +21,7 @@ class Program
 		{ 0b111, new[] {"bh", "di"} },
 	};
 
-	private static readonly Dictionary<int, string[]> regFieldEffectiveAddressEncodings = new()
+	private static readonly Dictionary<int, string[]> rmFieldEffectiveAddressEncoding = new()
 	{
 		{ (0b000), new[] {"bx + si"} },
 		{ (0b001), new[] {"bx + di"} },
@@ -47,13 +47,15 @@ class Program
 		var stringBuilder = new StringBuilder();
 		stringBuilder.AppendLine("bits 16\n");
 
-		var instr = new Instruction();
+
 		string src = string.Empty;
 		string dest = string.Empty;
 
 		int i = 0;
 		while (i < bufferSize)
 		{
+			var instr = new Instruction();
+
 			var opCode = GetOpCode(buffer[i]);
 			instr.OpCode = opCode;
 			var opRange = GetOpRange(opCode, ref buffer, i);
@@ -72,83 +74,7 @@ class Program
 					(dest, src) = ImmediateToRegister(curInstruction);
 					break;
 				case 0b100010:
-					// TODO: Extract this into a function
-					// ======================================
-					instr.D = buffer[i] >> 1 & 3;
-					instr.W = buffer[i] >> 0 & 1;
-
-
-					instr.Mod = buffer[i + 1] >> 6 & 7;
-					instr.Reg = buffer[i + 1] >> 3 & 7;
-					instr.Rm = buffer[i + 1] >> 0 & 7;
-					// ======================================
-
-					if (instr.Mod == 0b00)
-					{
-						var address = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()}]";
-						var reg = instr.D == 0
-							? regFieldMemoryModeEncodings[instr.Rm][instr.W]
-							: regFieldMemoryModeEncodings[instr.Reg][instr.W];
-
-						if (instr.D == 0)
-						{
-							dest = address;
-							src = regFieldMemoryModeEncodings[instr.Reg][instr.W];
-						}
-						else
-						{
-							src = address;
-							dest = reg;
-						}
-					}
-
-					if (instr.Mod == 0b01)
-					{
-						string reg = string.Empty;
-						if (instr.Rm == 0b110 && buffer[i + 2] == 0)
-						{
-							reg = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()}]";
-						}
-						else
-						{
-							reg = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()} + {buffer[i + 2]}]";
-						}
-
-						var address = regFieldMemoryModeEncodings[instr.Reg][instr.W];
-						if (instr.D == 1)
-						{
-							dest = address;
-							src = reg;
-						}
-						else
-						{
-							src = address;
-							dest = reg;
-						}
-					}
-
-					if (instr.Mod == 0b10)
-					{
-						// read 16 bit displacement
-						var data = (short)((buffer[i + 3] << 8) | (buffer[i + 2] << 0));
-						src = $"[{regFieldEffectiveAddressEncodings[instr.Rm].First()} + {data}]";
-
-						dest = instr.D == 0
-							? regFieldMemoryModeEncodings[instr.Rm][instr.W]
-							: regFieldMemoryModeEncodings[instr.Reg][instr.W];
-					}
-
-					if (instr.Mod == 0b11)
-					{
-						src = instr.D == 0
-									? regFieldMemoryModeEncodings[instr.Reg][instr.W]
-									: regFieldMemoryModeEncodings[instr.Rm][instr.W];
-
-						dest = instr.D == 0
-							? regFieldMemoryModeEncodings[instr.Rm][instr.W]
-							: regFieldMemoryModeEncodings[instr.Reg][instr.W];
-					}
-
+					(dest, src) = RegMemToFromRegister(curInstruction);
 					break;
 			}
 
@@ -171,8 +97,8 @@ class Program
 				{
 					var w = buffer[startPos] >> 3 & 1;
 					opRange = w == 0
-						? new Range(startPos, startPos + 2)
-						: new Range(startPos, startPos + 3);
+						? startPos..(startPos + 2)
+						: startPos..(startPos + 3);
 				}
 				break;
 			case 0b100010:
@@ -181,16 +107,16 @@ class Program
 					switch (mod)
 					{
 						case 0b00: // 2 (cur + 2)
-							opRange = new Range(startPos, startPos + 2);
+							opRange = startPos..(startPos + 2);
 							break;
 						case 0b01: // 3 (cur + 3)
-							opRange = new Range(startPos, startPos + 3);
+							opRange = startPos..(startPos + 3);
 							break;
 						case 0b10: // 4
-							opRange = new Range(startPos, startPos + 4);
+							opRange = startPos..(startPos + 4);
 							break;
 						case 0b11: // 2
-							opRange = new Range(startPos, startPos + 2);
+							opRange = startPos..(startPos + 2);
 							break;
 					}
 				}
@@ -199,6 +125,90 @@ class Program
 		}
 
 		return opRange;
+	}
+
+	private static (string dest, string src) RegMemToFromRegister(byte[] instrBytes)
+	{
+		string dest = string.Empty;
+		string src = string.Empty;
+
+		var D = instrBytes[0] >> 1 & 3;
+		var W = instrBytes[0] >> 0 & 1;
+		var Mod = instrBytes[1] >> 6 & 7;
+		var Reg = instrBytes[1] >> 3 & 7;
+		var Rm = instrBytes[1] >> 0 & 7;
+
+		// Memory Mode, no displacement, unless if R/M = 110, then 16 bit displacement
+		// NASM will actually encode this as MOD - 01 or 10
+		if (Mod == 0b00)
+		{
+			var decodedRm = $"[{rmFieldEffectiveAddressEncoding[Rm].First()}]";
+			var decodedReg = D == 0
+				? regFieldMemoryModeEncoding[Rm][W]
+				: regFieldMemoryModeEncoding[Reg][W];
+
+			(dest, src) = D == 0
+				? (decodedRm, regFieldMemoryModeEncoding[Reg][W])
+				: (decodedReg, decodedRm);
+
+			// if (D == 0)
+			// {
+			// 	dest = decodedRm;
+			// 	src = regFieldMemoryModeEncoding[Reg][W];
+			// }
+			// else
+			// {
+			// 	src = decodedRm;
+			// 	dest = decodedReg;
+			// }
+		}
+
+		// Memory Mode - 8 bit displacement
+		if (Mod == 0b01)
+		{
+			string decodedRm = string.Empty;
+
+			// This is an edge case for the [bp].
+			if (Rm == 0b110 && instrBytes[2] == 0)
+				decodedRm = $"[{rmFieldEffectiveAddressEncoding[Rm].First()}]";
+			else
+				decodedRm = $"[{rmFieldEffectiveAddressEncoding[Rm].First()} + {instrBytes[2]}]";
+
+			var decodedReg = regFieldMemoryModeEncoding[Reg][W];
+
+			(dest, src) = D == 1
+				? (decodedReg, decodedRm)
+				: (decodedRm, decodedReg);
+		}
+
+		// Memory Mode - 16 bit displacement
+		if (Mod == 0b10)
+		{
+			var data = (short)((instrBytes[3] << 8) | (instrBytes[2] << 0));
+			src = $"[{rmFieldEffectiveAddressEncoding[Rm].First()} + {data}]";
+
+			dest = D == 0
+				? regFieldMemoryModeEncoding[Rm][W]
+				: regFieldMemoryModeEncoding[Reg][W];
+		}
+
+		// Register Mode without displacement
+		if (Mod == 0b11)
+		{
+			(dest, src) = D == 0
+				? (regFieldMemoryModeEncoding[Rm][W], regFieldMemoryModeEncoding[Reg][W])
+				: (regFieldMemoryModeEncoding[Reg][W], regFieldMemoryModeEncoding[Rm][W]);
+
+			// src = D == 0
+			// 	? regFieldMemoryModeEncodings[Reg][W]
+			// 	: regFieldMemoryModeEncodings[Rm][W];
+
+			// dest = D == 0
+			// 	? regFieldMemoryModeEncodings[Rm][W]
+			// 	: regFieldMemoryModeEncodings[Reg][W];
+		}
+
+		return (dest, src);
 	}
 
 	private static (string dest, string src) ImmediateToRegister(byte[] instrBytes)
@@ -213,17 +223,8 @@ class Program
 			Data = (short)((instrBytes[2] << 8) | (instrBytes[1] << 0));
 
 		return (
-			dest: regFieldMemoryModeEncodings[Reg][W],
+			dest: regFieldMemoryModeEncoding[Reg][W],
 			src: Data.ToString());
-	}
-
-	private static Instruction BuildInstruction(int opCode, byte[] buffer)
-	{
-		return new Instruction
-		{
-			OpCode = opCode,
-			W = buffer[0] >> 3 & 1
-		};
 	}
 
 	static int GetOpCode(int opByte)
