@@ -1,5 +1,11 @@
 # 8086
 
+8086 decoder for the [Performance-Aware Programming Course](https://computerenhance.com/)
+
+## Listings can be found in the original repo
+
+<https://github.com/cmuratori/computer_enhance>
+
 ## Build & Usage
 
 ```shell
