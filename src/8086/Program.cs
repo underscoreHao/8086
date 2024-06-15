@@ -54,7 +54,7 @@ stringBuilder.AppendLine();
 for (int i = 0; i < bufferSize; i += 2)
 {
 	int opCode = buffer[i] >> 2;
-	int d = buffer[i] & 2;
+	int d = buffer[i] >> 1 & 2;
 	int w = buffer[i] & 1;
 
 	int mod = buffer[i + 1] >> 6;
