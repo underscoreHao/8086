@@ -54,7 +54,7 @@ stringBuilder.AppendLine();
 for (int i = 0; i < bufferSize; i += 2)
 {
 	int opCode = buffer[i] >> 2;
-	int d = buffer[i] >> 1 & 2;
+	int d = (buffer[i] & 2) >> 1;
 	int w = buffer[i] & 1;
 
 	int mod = buffer[i + 1] >> 6;
@@ -67,8 +67,7 @@ for (int i = 0; i < bufferSize; i += 2)
 	string src = d == 0 ? regFieldEncodings[reg][w] : regFieldEncodings[rm][w];
 	string dest = d == 0 ? regFieldEncodings[rm][w] : regFieldEncodings[reg][w];
 
-	stringBuilder.Append(dest + ", " + src);
-	stringBuilder.AppendLine();
+	stringBuilder.AppendLine($"{dest}, {src}");
 }
 
 Console.WriteLine(stringBuilder.ToString());
