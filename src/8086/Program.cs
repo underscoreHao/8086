@@ -95,7 +95,9 @@ internal class Program
 
 			idx = opRange.End.Value;
 
+#if DEBUG
 			Console.WriteLine($"{dest}, {src}");
+#endif
 
 			stringBuilder.Append(instructionEncodings[opCode] + " ");
 			stringBuilder.Append($"{dest}, {src}\n");
