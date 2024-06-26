@@ -44,15 +44,6 @@ internal class Program
 		byte[] buffer = new byte[256];
 		int bufferSize = stdin.Read(buffer, 0, buffer.Length);
 
-#if DEBUG
-
-		for (int i = 0; i < bufferSize; i += 2)
-			Console.WriteLine(Convert.ToString(buffer[i], 2) + ", " + Convert.ToString(buffer[i + i], 2));
-
-		Console.WriteLine();
-
-#endif
-
 		var stringBuilder = new StringBuilder();
 		stringBuilder.AppendLine("bits 16");
 		stringBuilder.AppendLine();
@@ -60,16 +51,32 @@ internal class Program
 		int idx = 0;
 		while (idx < bufferSize)
 		{
+			stringBuilder.Append("0x" + idx.ToString("x4") + " | ");
+
 			var opByte = buffer[idx++];
 
 			if (opByte >> 4 == (int)InstructionType.MOV_IMM_TO_REG_MEM)
 			{
 				var w = opByte >> 3 & 1;
 				var reg = opByte & 7;
+
+				stringBuilder.Append(opByte.ToString("x2") + " ");
+
 				// Little endian
-				short data = w == 0
-					? (sbyte)buffer[idx++]
-					: (short)(buffer[idx++] | (buffer[idx++] << 8));
+				short data;
+				if (w == 0)
+				{
+					stringBuilder.Append(buffer[idx].ToString("x2") + " ");
+					stringBuilder.Append("-- -- -- -- | ");
+					data = (sbyte)buffer[idx++];
+				}
+				else
+				{
+					stringBuilder.Append(buffer[idx].ToString("x2") + " ");
+					stringBuilder.Append(buffer[idx + 1].ToString("x2") + " ");
+					data = (short)(buffer[idx++] | (buffer[idx++] << 8));
+					stringBuilder.Append("-- -- -- | ");
+				}
 
 				stringBuilder.Append($"mov {regFieldMemoryModeEncoding[reg][w]}, {data}\n");
 			}
@@ -78,19 +85,34 @@ internal class Program
 				var d = (opByte & 2) >> 1;
 				var w = opByte & 1;
 
+				stringBuilder.Append(opByte.ToString("x2") + " ");
+
 				var byte2 = buffer[idx++];
+				stringBuilder.Append(buffer[idx].ToString("x2") + " ");
+
 				var mod = byte2 >> 6;
 				var reg = byte2 >> 3 & 7;
 				var rm = byte2 & 7;
 
 				if (mod == 0b11)
 				{
+					stringBuilder.Append("-- -- -- -- | ");
 					stringBuilder.Append(d == 1
 						? $"mov {regFieldMemoryModeEncoding[reg][w]}, {regFieldMemoryModeEncoding[rm][w]}\n"
 						: $"mov {regFieldMemoryModeEncoding[rm][w]}, {regFieldMemoryModeEncoding[reg][w]}\n");
 				}
 				else
 				{
+					if (mod == 0b10 || (mod == 0b00 && rm == 0b110))
+					{
+						stringBuilder.Append(buffer[idx + 1].ToString("x2") + " ");
+						stringBuilder.Append("-- -- -- | ");
+					}
+					else
+					{
+						stringBuilder.Append("-- -- -- -- | ");
+					}
+
 					var dispOrDirectAddr = mod switch
 					{
 						0b00 when rm == 0b110 => (short)(buffer[idx++] | (buffer[idx++] << 8)),
